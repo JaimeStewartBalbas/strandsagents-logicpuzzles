@@ -1,7 +1,13 @@
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
 from strands import Agent
 from pydantic import BaseModel, Field
 from strands.models.ollama import OllamaModel
-from data.load import format_sudoku
+from sudoku.data.load import format_sudoku
+from strands.handlers.callback_handler import PrintingCallbackHandler
+
 
 # Define Pydantic model for structured output
 class SudokuResult(BaseModel):
@@ -11,7 +17,7 @@ class SudokuResult(BaseModel):
 # Create Ollama model instance
 ollama_model = OllamaModel(
     host="http://localhost:11434",
-    model_id="qwen3:14b"
+    model_id="qwen3:4b",
 )
 
 # Strict system prompt: enforce JSON-only output
@@ -70,7 +76,8 @@ structured_output_agent = Agent(
 
 # Run agent using structured_output to enforce JSON parsing
 try:
-    result_structured = agent(f"Can you solve this sudoku?: {puzzle}")
+    print("Iniciando agente!")
+    result_structured = agent(f"Please solve this sudoku: {puzzle}")
     
     
     

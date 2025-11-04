@@ -2,7 +2,7 @@ from strands import Agent
 from pydantic import BaseModel, Field
 from strands.models.ollama import OllamaModel
 from tools.sudoku import solve_sudoku_tool, show_sudoku, validate_sudoku_solution
-from data.load import format_sudoku
+from sudoku.data.load import format_sudoku
 
 # Pydantic model defining the expected JSON output
 class SudokuResult(BaseModel):
