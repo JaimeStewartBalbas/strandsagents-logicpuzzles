@@ -42,68 +42,88 @@ def format_sudoku(sudoku_string: str) -> str:
     return output
 
 def solve_sudoku(sudoku_str):
-    """Solve a Sudoku puzzle using Z3 and return solution as a string of 81 digits."""
-    grid = [[int(sudoku_str[i*9 + j]) for j in range(9)] for i in range(9)]
+    """Solve a Sudoku puzzle using Z3. Supports 4x4 and 9x9 puzzles."""
+    length = len(sudoku_str)
+    
+    if length == 81:  # 9x9 Sudoku
+        size = 9
+        box_size = 3
+    elif length == 16:  # 4x4 Sudoku
+        size = 4
+        box_size = 2
+    else:
+        raise ValueError("Sudoku must have 16 (4x4) or 81 (9x9) digits")
+    
+    grid = [[int(sudoku_str[i*size + j]) for j in range(size)] for i in range(size)]
     solver = Solver()
-    cells = [[Int(f"cell_{i}_{j}") for j in range(9)] for i in range(9)]
+    cells = [[Int(f"cell_{i}_{j}") for j in range(size)] for i in range(size)]
 
-    for i in range(9):
-        for j in range(9):
-            solver.add(cells[i][j] >= 1, cells[i][j] <= 9)
+    for i in range(size):
+        for j in range(size):
+            solver.add(cells[i][j] >= 1, cells[i][j] <= size)
 
-    for i in range(9):
-        for j in range(9):
+    for i in range(size):
+        for j in range(size):
             if grid[i][j] != 0:
                 solver.add(cells[i][j] == grid[i][j])
 
-    for i in range(9):
-        solver.add(Distinct(cells[i]))  # fila
-        solver.add(Distinct([cells[j][i] for j in range(9)]))  # columna
+    for i in range(size):
+        solver.add(Distinct(cells[i]))  # row
+        solver.add(Distinct([cells[j][i] for j in range(size)]))  # column
 
-    for box_i in range(3):
-        for box_j in range(3):
-            block = [cells[box_i*3 + i][box_j*3 + j] for i in range(3) for j in range(3)]
+    for box_i in range(box_size):
+        for box_j in range(box_size):
+            block = [cells[box_i*box_size + i][box_j*box_size + j] for i in range(box_size) for j in range(box_size)]
             solver.add(Distinct(block))
 
     if solver.check() == sat:
         model = solver.model()
-        solution = ''.join(str(model.evaluate(cells[i][j])) for i in range(9) for j in range(9))
-        print("Solved Sudoku:", solution)
+        solution = ''.join(str(model.evaluate(cells[i][j])) for i in range(size) for j in range(size))
         return solution
     else:
         return None
 
-
 def is_valid_sudoku_solution(sudoku_string: str) -> bool:
     """
-    Check if a string of 81 digits represents a valid Sudoku solution.
+    Check if a string represents a valid Sudoku solution. Supports 4x4 and 9x9.
 
     Args:
-        sudoku_string: A string of 81 digits, '0' should not appear in a valid solution.
+        sudoku_string: A string of 16 (4x4) or 81 (9x9) digits, '0' should not appear in a valid solution.
 
     Returns:
         True if the string is a valid Sudoku solution, False otherwise.
     """
-    if len(sudoku_string) != 81 or not sudoku_string.isdigit() or '0' in sudoku_string:
+    length = len(sudoku_string)
+    
+    if length == 81:  # 9x9 Sudoku
+        size = 9
+        box_size = 3
+    elif length == 16:  # 4x4 Sudoku
+        size = 4
+        box_size = 2
+    else:
+        return False
+    
+    if not sudoku_string.isdigit() or '0' in sudoku_string:
         return False
 
-    grid = [[int(sudoku_string[i*9 + j]) for j in range(9)] for i in range(9)]
+    grid = [[int(sudoku_string[i*size + j]) for j in range(size)] for i in range(size)]
 
     # Check rows
     for row in grid:
-        if len(set(row)) != 9:
+        if len(set(row)) != size:
             return False
 
     # Check columns
-    for col in range(9):
-        if len(set(grid[row][col] for row in range(9))) != 9:
+    for col in range(size):
+        if len(set(grid[row][col] for row in range(size))) != size:
             return False
 
-    # Check 3x3 blocks
-    for box_i in range(3):
-        for box_j in range(3):
-            block = [grid[box_i*3 + i][box_j*3 + j] for i in range(3) for j in range(3)]
-            if len(set(block)) != 9:
+    # Check blocks
+    for box_i in range(box_size):
+        for box_j in range(box_size):
+            block = [grid[box_i*box_size + i][box_j*box_size + j] for i in range(box_size) for j in range(box_size)]
+            if len(set(block)) != size:
                 return False
 
     return True

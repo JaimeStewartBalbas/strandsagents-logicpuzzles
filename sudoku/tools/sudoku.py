@@ -1,12 +1,12 @@
 from strands import tool
-from data.load import solve_sudoku, format_sudoku, is_valid_sudoku_solution
+from sudoku.data.load import solve_sudoku, format_sudoku, is_valid_sudoku_solution
 
 @tool
 def solve_sudoku_tool(sudoku: str) -> str:
     """Solve a Sudoku puzzle.
 
     Args:
-        sudoku: A string of 81 digits (0 for empty cells).
+        sudoku: A string of 81 or 16 digits (0 for empty cells).
 
     Returns:
         A string containing the solution of the sudoku 81 digits representing the solved Sudoku.
@@ -20,7 +20,7 @@ def show_sudoku(sudoku_string: str):
     """
     Display a Sudoku puzzle in a readable format.
 
-    This tool takes a string of exactly 81 digits, where '0' represents an empty cell,
+    This tool takes a string of exactly 16 digits, where '0' represents an empty cell,
     and prints the Sudoku grid in a human-readable format.
 
     Example of usage:
@@ -29,7 +29,7 @@ def show_sudoku(sudoku_string: str):
     return f"Formatting sudoku: {sudoku_string} to {format_sudoku(sudoku_string)}"
 
 
-from data.load import is_valid_sudoku_solution  # ajusta la ruta según tu proyecto
+from sudoku.data.load import is_valid_sudoku_solution  
 
 @tool
 def validate_sudoku_solution(sudoku_string: str) -> str:
@@ -37,7 +37,7 @@ def validate_sudoku_solution(sudoku_string: str) -> str:
     Check if a given Sudoku solution string is valid.
 
     Args:
-        sudoku_string: A string of 81 digits representing a Sudoku solution.
+        sudoku_string: A string of 16 or 81 digits representing a Sudoku solution.
 
     Example usage:
         validate_sudoku_solution("400053270020600803008904010145200006000048300000001090601300450000070900780000060")
