@@ -28,6 +28,11 @@ MAX_TIMEOUT_MINUTES = 10
 CSV_INPUT_PATH = "../data/sudokus_4x4.csv"
 RESULTS_OUTPUT_PATH = "results_4_agent.txt"
 
+def remove_think_tags(text):
+    """Remove <think> and </think> tags and their content from the text."""
+    import re
+    return re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
+
 def solve_sudoku_with_timeout(agent, puzzle, timeout_seconds):
     result = [None]
     exception = [None]
@@ -55,15 +60,16 @@ def solve_sudoku_with_timeout(agent, puzzle, timeout_seconds):
 
 # Pydantic model defining the expected JSON output
 class SudokuResult(BaseModel):
-    """Structured output for a solved Sudoku."""
-    sudoku: str = Field(description="Original Sudoku puzzle as an 81-digit string")
-    solution: str = Field(description="Solved Sudoku as an 81-digit string")
+    """Model that contains the base information of Sudoku Solution which is the sudoku and the solution as 16 or 81 digit strings."""
+    sudoku: str = Field(description="Original Sudoku puzzle string as an 16 or 81-digit string")
+    solution: str = Field(description="Solved Sudoku as an 16 or 81-digit string")
 
 
 # Create an Ollama model instance
 ollama_model = OllamaModel(
     host="http://localhost:11434",  
-    model_id="qwen3:1.7b"              
+    model_id="qwen3:1.7b",
+    temperature=0.1              
 )
 
 gemini_model = GeminiModel(
@@ -75,7 +81,7 @@ gemini_model = GeminiModel(
 
 
 SYSTEM_PROMPT = """
-You are a Sudoku-solving agent. You have access to tools that can help you solve and validate Sudoku puzzles.
+You are a Sudoku-solving agent. You have access to tools that can help you solve and validate Sudoku puzzles. Always use the tools and never validate yourself your solutions.
 You have access to the tools `show_sudoku`, `solve_sudoku_tool`, and `validate_sudoku_solution`.
 
 IMPORTANT: Your response must be a JSON object with exactly the following format and nothing else:
@@ -88,29 +94,23 @@ Instructions:
 1. When a user provides a Sudoku puzzle as a string of 16 digits (0 represents empty cells):
    a. Call `solve_sudoku_tool` to solve the puzzle.
    b. Call `validate_sudoku_solution` with the output to ensure it is valid.
-      - If the solution is invalid, return a JSON with "solution": null.
    c. Do NOT attempt to solve, format, or validate the Sudoku yourself; rely only on the tools.
 2. Return a JSON following the exact schema above.
 """
 
 # Create an agent using the Ollama model and both tools
-agent = Agent(
-    model=ollama_model,
-    system_prompt=SYSTEM_PROMPT,
-   # callback_handler=None,
-    tools=[solve_sudoku_tool, show_sudoku,validate_sudoku_solution]
-)
+
 
 
 SYSTEM_PROMPT_FORMATTER = """
-You are a formatting assistant.
-You must format the Sudoku solution provided by the input and return SudokuResult object.
+You are a formatting agent that will return a structured output as a SudokuResult object.
+Never try to validate solution or solve the sudoku yourself, just return the answer as a SudokuResult object.
+Extract puzzle and solution from the response. Return SudokuResult with:
+- sudoku: original 16-digit string
+- solution: solved 16-digit string
 """
 
-structured_output_agent = Agent(
-    model=ollama_model,
-    system_prompt=SYSTEM_PROMPT_FORMATTER,
-)
+
 
 def process_sudokus():
     results = []
@@ -128,11 +128,22 @@ def process_sudokus():
             
             print(f"\nProcessing puzzle {total_puzzles}: {puzzle}")
             
+            agent = Agent(
+                model=ollama_model,
+                system_prompt=SYSTEM_PROMPT,
+                callback_handler=None,
+                tools=[solve_sudoku_tool, show_sudoku,validate_sudoku_solution]
+            )
+
+            structured_output_agent = Agent(
+                model=ollama_model,
+                system_prompt=SYSTEM_PROMPT_FORMATTER,
+                callback_handler=None,
+            )
             start_time = time.time()
             result = solve_sudoku_with_timeout(agent, puzzle, MAX_TIMEOUT_MINUTES * 60)
             end_time = time.time()
             solve_time = end_time - start_time
-            
             if result is None:
                 print(f"Timeout or error for puzzle {total_puzzles}")
                 timeout_puzzles += 1
@@ -141,14 +152,16 @@ def process_sudokus():
                     'expected_solution': expected_solution,
                     'agent_solution': None,
                     'is_correct': False,
-                    'solve_time': solve_time,
+                    'solve_time': round(solve_time,2),
                     'status': 'timeout'
                 })
             else:
                 try:
-                    print("Formating solution...")
+                    print("\nFormating solution...")
+                    cleaned_result = remove_think_tags(str(result))
+                    print("Cleaned output = ", str(cleaned_result))
                     result = structured_output_agent(
-                        f"Format this sudoku solution: {result}",
+                        f"Format this sudoku solution: {cleaned_result}",
                         structured_output_model=SudokuResult,
                     )
                     

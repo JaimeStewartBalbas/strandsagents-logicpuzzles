@@ -5,6 +5,9 @@ import time
 import threading
 import warnings
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Suppress aiohttp warnings
 warnings.filterwarnings("ignore", message=".*Unclosed.*")
@@ -16,12 +19,19 @@ from strands import Agent
 from pydantic import BaseModel, Field
 from strands.models.ollama import OllamaModel
 from sudoku.data.load import format_sudoku, is_valid_sudoku_solution
+from sudoku.tools.sudoku import solve_sudoku_tool, show_sudoku,validate_sudoku_solution
 from strands.models.gemini import GeminiModel
+
 
 # Configuration
 MAX_TIMEOUT_MINUTES = 10
 CSV_INPUT_PATH = "../data/sudokus_4x4.csv"
-RESULTS_OUTPUT_PATH = "results.txt"
+RESULTS_OUTPUT_PATH = "results_4_llm.txt"
+
+def remove_think_tags(text):
+    """Remove <think> and </think> tags and their content from the text."""
+    import re
+    return re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
 
 def solve_sudoku_with_timeout(agent, puzzle, timeout_seconds):
     result = [None]
@@ -29,7 +39,7 @@ def solve_sudoku_with_timeout(agent, puzzle, timeout_seconds):
     
     def solve_task():
         try:
-            result[0] = agent(f"Can you solve this sudoku?: {puzzle}")
+            result[0] = agent(f"Can you solve this {len(puzzle)}-digit sudoku?: {puzzle}")
         except Exception as e:
             exception[0] = e
     
@@ -47,20 +57,24 @@ def solve_sudoku_with_timeout(agent, puzzle, timeout_seconds):
         
     return result[0]
 
+# Pydantic model defining the expected JSON output
 class SudokuResult(BaseModel):
-    sudoku: str = Field(description="Original Sudoku puzzle as a 16-digit string")
-    solution: str = Field(description="Solved Sudoku as a 16-digit string")
+    """Model that contains the base information of Sudoku Solution which is the sudoku and the solution as 16 or 81 digit strings."""
+    sudoku: str = Field(description="Original Sudoku puzzle string as an 16 or 81-digit string")
+    solution: str = Field(description="Solved Sudoku as an 16 or 81-digit string")
 
+
+# Create an Ollama model instance
 ollama_model = OllamaModel(
-    host="http://localhost:11434",
-    model_id="qwen3:14b",
+    host="http://localhost:11434",  
+    model_id="qwen3:1.7b",
+    temperature=0.1              
 )
 
 gemini_model = GeminiModel(
     client_args={
         "api_key": os.getenv("GEMINI_API_KEY"),
     },
-    # **model_config
     model_id="gemini-2.5-pro",
 )
 
@@ -79,17 +93,16 @@ IMPORTANT: Your response must be a JSON object **exactly** in this format and no
 Return **only the JSON object**.
 """
 
-agent = Agent(
-    model=gemini_model,
-    system_prompt=SYSTEM_PROMPT,
-    #callback_handler=None,
-)
 
-structured_output_agent = Agent(
-    model=gemini_model,
-    system_prompt="Format the Sudoku solution as SudokuResult object.",
-    callback_handler=None,
-)
+SYSTEM_PROMPT_FORMATTER = """
+You are a formatting agent that will return a structured output as a SudokuResult object.
+Never try to validate solution or solve the sudoku yourself, just return the answer as a SudokuResult object.
+Extract puzzle and solution from the response. Return SudokuResult with:
+- sudoku: original 16-digit string
+- solution: solved 16-digit string
+"""
+
+
 
 def process_sudokus():
     results = []
@@ -107,11 +120,21 @@ def process_sudokus():
             
             print(f"\nProcessing puzzle {total_puzzles}: {puzzle}")
             
+            agent = Agent(
+                model=ollama_model,
+                system_prompt=SYSTEM_PROMPT,
+                callback_handler=None,
+            )
+
+            structured_output_agent = Agent(
+                model=ollama_model,
+                system_prompt=SYSTEM_PROMPT_FORMATTER,
+                callback_handler=None,
+            )
             start_time = time.time()
             result = solve_sudoku_with_timeout(agent, puzzle, MAX_TIMEOUT_MINUTES * 60)
             end_time = time.time()
             solve_time = end_time - start_time
-            
             if result is None:
                 print(f"Timeout or error for puzzle {total_puzzles}")
                 timeout_puzzles += 1
@@ -120,14 +143,16 @@ def process_sudokus():
                     'expected_solution': expected_solution,
                     'agent_solution': None,
                     'is_correct': False,
-                    'solve_time': solve_time,
+                    'solve_time': round(solve_time,2),
                     'status': 'timeout'
                 })
             else:
                 try:
-                    print("Formating solution...")
+                    print("\nFormating solution...")
+                    cleaned_result = remove_think_tags(str(result))
+                    print("Cleaned output = ", str(cleaned_result))
                     result = structured_output_agent(
-                        f"Format this sudoku solution: {result}",
+                        f"Format this sudoku solution: {cleaned_result}",
                         structured_output_model=SudokuResult,
                     )
                     
@@ -174,6 +199,7 @@ def process_sudokus():
     print(f"Solved correctly: {solved_puzzles}")
     print(f"Timeouts/Errors: {timeout_puzzles}")
     print(f"Success rate: {(solved_puzzles/total_puzzles)*100:.1f}%")
+    print(f"Average time to solve Sudoku: {sum([r['solve_time'] for r in results if r['status'] == 'solved'])/solved_puzzles:.2f}s")
     print(f"Results saved to: {RESULTS_OUTPUT_PATH}")
 
 if __name__ == "__main__":

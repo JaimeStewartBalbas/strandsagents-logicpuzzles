@@ -1,8 +1,13 @@
 import csv
 from sudoku import Sudoku
 import random
+import sys
+import os
 
-def generate_4x4_sudokus(filename="sudokus_4x4.csv", n=10, difficulty=0.5):
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+
+def generate_4x4_sudokus(filename="sudokus_4x4.csv", n=100, difficulty=0.5):
     """
     Genera n sudokus 4x4 diferentes usando pysudoku con seeds distintas.
     Guarda en CSV en formato string plano (0 para casillas vacías).
@@ -32,4 +37,4 @@ def generate_4x4_sudokus(filename="sudokus_4x4.csv", n=10, difficulty=0.5):
     
     
 if __name__ == "__main__":
-    generate_4x4_sudokus("./data/sudokus_4x4.csv", n=10, difficulty=0.5)
+    generate_4x4_sudokus("../data/sudokus_4x4.csv", n=100, difficulty=0.5)
