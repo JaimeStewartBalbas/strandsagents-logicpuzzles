@@ -25,8 +25,8 @@ from strands.models.gemini import GeminiModel
 
 # Configuration
 MAX_TIMEOUT_MINUTES = 5
-CSV_INPUT_PATH = "../data/sudokus_4x4.csv"
-RESULTS_OUTPUT_PATH = "results_4_agent.txt"
+CSV_INPUT_PATH = "../data/sudokus_9x9.csv"
+RESULTS_OUTPUT_PATH = "results_9_agent.txt"
 
 def remove_think_tags(text):
     """Remove <think> and </think> tags and their content from the text."""
@@ -79,12 +79,12 @@ You have access to the tools `show_sudoku`, `solve_sudoku_tool`, and `validate_s
 
 IMPORTANT: Your response must be a JSON object with exactly the following format and nothing else:
 {
-    "sudoku": "<the original 16-digit puzzle string>",
-    "solution": "<the 16-digit solution string>"
+    "sudoku": "<the original 81-digit puzzle string>",
+    "solution": "<the 81-digit solution string>"
 }
 
 Instructions:
-1. When a user provides a Sudoku puzzle as a string of 16 digits (0 represents empty cells):
+1. When a user provides a Sudoku puzzle as a string of 81 digits (0 represents empty cells):
    a. Call `solve_sudoku_tool` to solve the puzzle.
    b. Call `validate_sudoku_solution` with the output to ensure it is valid.
    c. Do NOT attempt to solve, format, or validate the Sudoku yourself; rely only on the tools.
@@ -94,13 +94,12 @@ Instructions:
 # Create an agent using the Ollama model and both tools
 
 
-
 SYSTEM_PROMPT_FORMATTER = """
 You are a formatting agent that will return a structured output as a SudokuResult object.
 Never try to validate solution or solve the sudoku yourself, just return the answer as a SudokuResult object.
 Extract puzzle and solution from the response. Return SudokuResult with:
-- sudoku: original 16-digit string
-- solution: solved 16-digit string
+- sudoku: original 81-digit string
+- solution: solved 81-digit string
 """
 
 
@@ -110,10 +109,9 @@ def process_sudokus():
     total_puzzles = 0
     solved_puzzles = 0
     timeout_puzzles = 0
-    
+
     with open(CSV_INPUT_PATH, 'r') as file:
         reader = csv.DictReader(file)
-        
         for row in reader:
             puzzle = row['sudoku']
             expected_solution = row['solution']
@@ -201,6 +199,7 @@ def process_sudokus():
     print(f"Solved correctly: {solved_puzzles}")
     print(f"Timeouts/Errors: {timeout_puzzles}")
     print(f"Success rate: {(solved_puzzles/total_puzzles)*100:.1f}%")
+    print(f"Average time to solve Sudoku: {sum([r['solve_time'] for r in results if r['status'] == 'solved'])/solved_puzzles:.2f}s")
     print(f"Results saved to: {RESULTS_OUTPUT_PATH}")
 
 if __name__ == "__main__":

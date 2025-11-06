@@ -24,9 +24,9 @@ from strands.models.gemini import GeminiModel
 
 
 # Configuration
-MAX_TIMEOUT_MINUTES = 10
+MAX_TIMEOUT_MINUTES = 5
 CSV_INPUT_PATH = "../data/sudokus_4x4.csv"
-RESULTS_OUTPUT_PATH = "results_4_llm.txt"
+RESULTS_OUTPUT_PATH = "results_4_llm_gemini.txt"
 
 def remove_think_tags(text):
     """Remove <think> and </think> tags and their content from the text."""
@@ -79,18 +79,24 @@ gemini_model = GeminiModel(
 )
 
 SYSTEM_PROMPT = """
-You are a Sudoku-solving assistant.
-You will receive a flattened 4x4 Sudoku puzzle as a string of 16 digits (0 represents empty cells).
-Solve the puzzle using your reasoning capabilities quickly.
+You are a Sudoku-solving assistant for 4x4 puzzles.
+You will have 5 minutes to solve the sudoku, so you need to solve it fast and efficiently.
+Input: a 16-character string with digits 0–4 (0 = empty).
+Goal: fill all zeros so that each row, column, and 2x2 box contains digits 1–4 exactly once.
 
-IMPORTANT: Your response must be a JSON object **exactly** in this format and nothing else:
+Use simple logic or backtracking:
+- Find an empty cell (0).
+- Try digits 1–4 that don’t repeat in its row, column, or 2x2 box.
+- Continue until full and valid.
+
+Return only a  JSON object in this exact format:
 
 {
     "sudoku": "<the original 16-digit puzzle string>",
-    "solution": "<the 16-digit solution string>"
+    "solution": "<the solved 16-digit string>"
 }
 
-Return **only the JSON object**.
+Output nothing else.
 """
 
 

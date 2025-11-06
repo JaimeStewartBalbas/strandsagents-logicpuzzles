@@ -136,13 +136,13 @@ def is_valid_sudoku_solution(sudoku_string: str) -> bool:
 # ---------------------------------
 if __name__ == "__main__":
 
-    # Arrays for just 10 puzzles
-    quizzes = np.zeros((10, 81), np.int32)
-    solutions = np.zeros((10, 81), np.int32)
+    # Arrays for 100 puzzles
+    quizzes = np.zeros((100, 81), np.int32)
+    solutions = np.zeros((100, 81), np.int32)
 
-    # Read only the first 10 lines (after header)
+    # Read only the first 101 lines (after header)
     with open(FILE_PATH, 'r') as f:
-        lines = f.read().splitlines()[1:11]
+        lines = f.read().splitlines()[1:101]
 
     for i, line in enumerate(lines):
         quiz, solution = line.split(",")
@@ -154,19 +154,19 @@ if __name__ == "__main__":
     solutions = solutions.reshape((-1, 9, 9))
 
     print("First Sudoku Puzzle:")
-    print_sudoku(quizzes[0].flatten().astype(str))
+    format_sudoku(quizzes[0].flatten().astype(str))
     print("\n")
 
     print("Solving the first Sudoku with Z3...")
     solution_solver = solve_sudoku(quizzes[0].flatten().astype(str))
-    print_sudoku(solution_solver)
+    format_sudoku(solution_solver)
 
     print("\n")
     print("First Sudoku Solution (Ground Truth):")
     print(len(solutions[0].flatten().astype(str)))
-    print_sudoku(solutions[0].flatten().astype(str))
+    format_sudoku(solutions[0].flatten().astype(str))
 
-    # Save the 10 sudokus into a new CSV
+    # Save the 100 sudokus into a new CSV
     with open(OUTPUT_PATH, 'w', newline='') as f:
         writer = csv.writer(f)
         writer.writerow(["quizzes", "solutions"])  # header
@@ -176,4 +176,4 @@ if __name__ == "__main__":
                 "".join(map(str, s.flatten()))
             ])
 
-    print(f"Saved first 10 puzzles to {OUTPUT_PATH}")
+    print(f"Saved first 100 puzzles to {OUTPUT_PATH}")
