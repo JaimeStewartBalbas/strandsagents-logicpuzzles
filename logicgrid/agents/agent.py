@@ -19,13 +19,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from strands import Agent
 from pydantic import BaseModel, Field
 from strands.models.ollama import OllamaModel
+from logicgrid.tools.tools import solve_logic_grid_tool
 from logicgrid.tools.solvers import check_solution
 from strands.models.gemini import GeminiModel
 
 # Configuration
 MAX_TIMEOUT_MINUTES = 5
 JSONL_INPUT_PATH = "../data/logic_puzzles_auto.jsonl"
-RESULTS_OUTPUT_PATH = "results_logicgrid_llm.txt"
+RESULTS_OUTPUT_PATH = "results_logicgrid_agent.txt"
 
 def remove_think_tags(text):
     """Remove <think> and </think> tags and their content from the text."""
@@ -68,30 +69,21 @@ ollama_model = OllamaModel(
     temperature=0.1              
 )
 
-gemini_model = GeminiModel(
-    client_args={
-        "api_key": os.getenv("GEMINI_API_KEY"),
-    },
-    model_id="gemini-2.5-pro",
-)
-
-
 SYSTEM_PROMPT = """
-You are a logic grid puzzle solver. Solve puzzles using logical reasoning step by step.
+You are a logic grid puzzle solver. Use solve_logic_grid_tool to solve puzzles.
 
-Process:
-1. Identify entities (people) and attributes (categories with values)
-2. Analyze each clue systematically
-3. Use deduction to eliminate impossible combinations
-4. Build the solution step by step using logical constraints
+Steps:
+1. Extract entities (people names)
+2. Extract attributes (categories and values)
+3. Convert clues:
+   - "X has Y" → {"type": "eq", "entity": "X", "attr": "category", "value": "Y"}
+   - "X doesn't have Y" → {"type": "neq", "entity": "X", "attr": "category", "value": "Y"}
+   - "Whoever has A has B" → {"type": "cross_eq", "attr1": "cat1", "value1": "A", "attr2": "cat2", "value2": "B"}
+   - "Person with A doesn't have B" → {"type": "cross_neq", "attr1": "cat1", "value1": "A", "attr2": "cat2", "value2": "B"}
+4. Call solve_logic_grid_tool(entities, attributes, clues)
+5. Return only the solution JSON
 
-Reasoning approach:
-- Direct assignments: "X has Y" means X gets Y
-- Negations: "X doesn't have Y" means X cannot have Y
-- Cross-references: "Whoever has A has B" creates conditional relationships
-- Process of elimination: if X can't have Y or Z, then X must have W
-
-Work through the logic systematically and return only the final solution.
+Always use the tool - never solve manually.
 
 IMPORTANT: Your response must be a JSON object with exactly the following format and nothing else:
 {
@@ -120,9 +112,10 @@ if __name__ == "__main__":
                 print(f"\nProcessing puzzle {total_puzzles}: {puzzle_data['id']}")
                 
                 agent = Agent(
-                    model=gemini_model,
+                    model=ollama_model,
                     system_prompt=SYSTEM_PROMPT,
                     callback_handler=None,
+                    tools=[solve_logic_grid_tool]
                 )
 
                 structured_output_agent = Agent(

@@ -1,348 +1,258 @@
 import json
+import uuid
 import random
-import csv  # Importado para guardar en CSV
-from constraint import Problem, AllDifferentConstraint
-from typing import List, Dict, Any, Optional, Tuple
+from itertools import permutations
+from pathlib import Path
 
-# --- 1. CONFIGURACIÓN GLOBAL ---
+# ───────────────────────────────
+# Configuration
+# ───────────────────────────────
+NUM_PUZZLES = 100
+MIN_ENTITIES = 3
+MAX_ENTITIES = 4
 
-N_PUZZLES_TO_GENERATE = 5
-ALL_PUZZLES_GENERATED = []
-
-# --- 2. MOLDES DE PUZZLES (Diversos) ---
-
-PUZZLE_TEMPLATES = [
-    {
-        "id_prefix": "mascotas_3x3",
-        "base_category": "Persona",
-        "categories": {
-            "Persona": ["Ana", "Beto", "Clara"],
-            "Mascota": ["Gato", "Perro", "Pez"],
-            "Ciudad": ["Lima", "Bogotá", "Quito"]
-        }
-    },
-    {
-        "id_prefix": "aventura_3x3",
-        "base_category": "Héroe",
-        "categories": {
-            "Héroe": ["Ariana", "Balthazar", "Caelia"],
-            "Arma": ["Espada", "Arco", "Báculo"],
-            "Lugar": ["Bosque", "Castillo", "Caverna"]
-        }
-    },
-    {
-        "id_prefix": "trabajos_4x3", # 4 items, 3 categorías
-        "base_category": "Nombre",
-        "categories": {
-            "Nombre": ["David", "Elena", "Fran", "Gloria"],
-            "Trabajo": ["Doctor", "Chef", "Piloto", "Actor"],
-            "Destino": ["París", "Tokio", "Sydney", "Cairo"]
-        }
-    },
-    {
-        "id_prefix": "cocina_4x3", # 4 items, 3 categorías
-        "base_category": "Chef",
-        "categories": {
-            "Chef": ["Marco", "Lucía", "Javier", "Sofía"],
-            "Plato": ["Pasta", "Curry", "Tacos", "Estofado"],
-            "Restaurante": ["Sol", "Luna", "Mar", "Tierra"]
-        }
-    },
-    {
-        "id_prefix": "espacio_4x4", # 4 items, 4 categorías
-        "base_category": "Capitán",
-        "categories": {
-            "Capitán": ["Zane", "Kira", "Rax", "Vex"],
-            "Nave": ["Nova", "Orion", "Hyperion", "Sirius"],
-            "Planeta": ["Xylos", "Glebar", "Rylon", "Phaedra"],
-            "Misión": ["Explorar", "Diplomacia", "Carga", "Defensa"]
-        }
-    },
+NAME_POOL = [
+    "Alice","Bob","Carol","David","Eva","Frank","Grace","Hugo","Irene","Jorge",
+    "Marta","Nico","Olga","Pablo","Quinn","Sara","Vera"
 ]
 
-# --- 3. LÓGICA DE GENERACIÓN (Sin cambios) ---
+ATTRIBUTE_POOLS = {
+    "color": ["red","blue","green","yellow","purple"],
+    "animal": ["cat","dog","fish","hamster","bird"],
+    "drink": ["coffee","tea","juice","water","soda"],
+    "city": ["Madrid","Rome","London","Paris","Berlin"],
+    "sport": ["tennis","football","swimming","basketball","yoga"],
+    "food": ["pizza","salad","sushi","pasta","tacos"]
+}
 
-def create_ground_truth(categories: Dict[str, List[str]], base_category: str) -> Dict[str, Dict[str, str]]:
-    """
-    Genera una solución (verdad fundamental) aleatoria y válida
-    para un molde de categorías dado.
-    """
-    base_items = categories[base_category]
-    other_categories = {k: v for k, v in categories.items() if k != base_category}
+# ───────────────────────────────
+# Helper: generate natural text
+# ───────────────────────────────
+def generate_text(entities, attributes, clues_text):
+    attr_desc = []
+    for attr, values in attributes.items():
+        attr_desc.append(f"{attr}: {', '.join(values)}")
+    attr_text = "; ".join(attr_desc)
+
+    narrative = f"There are {len(entities)} people: {', '.join(entities)}.\n"
+    narrative += f"The attributes are: {attr_text}.\n"
+    narrative += "Clues:\n"
+    for c in clues_text:
+        narrative += f"- {c}\n"
+    narrative += "\nDetermine which attributes correspond to each person."
+    return narrative
+
+# ───────────────────────────────
+# Helper: generate structured clues
+# ───────────────────────────────
+def generate_structured_clues(entities, attributes, solution):
+    clues_text = []
+    clues_structured = []
+    used_facts = set()  # Avoid redundant clues
+
+    # 1. One direct positive statement (only one to not give too much information)
+    entity = random.choice(entities)
+    attr = random.choice(list(attributes.keys()))
+    value = solution[entity][attr]
+    clues_text.append(f"{entity} has {value}.")
+    clues_structured.append({"type":"eq","entity":entity,"attr":attr,"value":value})
+    used_facts.add((entity, attr, value))
+
+    # 2. Strategic negations
+    neg_count = 0
+    max_negations = len(entities) + 1
+    while neg_count < max_negations:
+        entity = random.choice(entities)
+        attr = random.choice(list(attributes.keys()))
+        choices = [v for v in attributes[attr] if v != solution[entity][attr]]
+        if choices:
+            val = random.choice(choices)
+            if (entity, attr, val, "neq") not in used_facts:
+                clues_text.append(f"{entity} doesn't have {val}.")
+                clues_structured.append({"type":"neq","entity":entity,"attr":attr,"value":val})
+                used_facts.add((entity, attr, val, "neq"))
+                neg_count += 1
+
+    # 3. More varied cross-comparisons
+    cross_count = 0
+    max_cross = len(attributes) if len(attributes) > 2 else 2
     
-    solution = {item: {} for item in base_items}
-    
-    for cat_name, cat_items in other_categories.items():
-        shuffled_items = random.sample(cat_items, k=len(base_items))
-        
-        for i, base_item in enumerate(base_items):
-            solution[base_item][cat_name] = shuffled_items[i]
+    while cross_count < max_cross:
+        if len(attributes) < 2:
+            break
             
-    return solution
-
-def generate_all_possible_clues(ground_truth: Dict, categories: Dict, base_category: str) -> List[Dict]:
-    """
-    Genera un banco masivo de todas las pistas verdaderas
-    (positivas, negativas y de enlace) basadas en la solución.
-    """
-    all_clues = []
-    base_items = list(categories[base_category])
-    
-    for base_item in base_items:
-        solution_for_item = ground_truth[base_item]
+        attr1, attr2 = random.sample(list(attributes.keys()), 2)
         
-        # Pistas Positivas y Negativas
-        for cat_name, solved_item in solution_for_item.items():
-            all_clues.append({"type": "positive", "items": [base_item, solved_item]})
-            for other_item in categories[cat_name]:
-                if other_item != solved_item:
-                    all_clues.append({"type": "negative", "items": [base_item, other_item]})
-    
-        # Pistas de Enlace (Link)
-        solved_items_list = list(solution_for_item.values())
-        for i in range(len(solved_items_list)):
-            for j in range(i + 1, len(solved_items_list)):
-                all_clues.append({"type": "link", "items": [solved_items_list[i], solved_items_list[j]]})
+        # Choose values that are actually in the solution
+        entity1 = random.choice(entities)
+        val1 = solution[entity1][attr1]
+        
+        # For cross_eq: use same entity
+        # For cross_neq: use different entity
+        clue_type = random.choice(["cross_neq", "cross_eq"])
+        
+        if clue_type == "cross_eq":
+            val2 = solution[entity1][attr2]  # Same entity
+            cross_key = (attr1, val1, attr2, val2, "eq")
+        else:
+            # Find a different entity to create a valid negation
+            other_entities = [e for e in entities if e != entity1]
+            if other_entities:
+                entity2 = random.choice(other_entities)
+                val2 = solution[entity2][attr2]
+                cross_key = (attr1, val1, attr2, val2, "neq")
+            else:
+                continue
+        
+        if cross_key not in used_facts:
+            if clue_type == "cross_neq":
+                clues_text.append(f"The person with {val1} {attr1} doesn't have {val2} {attr2}.")
+                clues_structured.append({"type":"cross_neq","attr1":attr1,"value1":val1,"attr2":attr2,"value2":val2})
+            else:
+                clues_text.append(f"Whoever has {val1} {attr1} has {val2} {attr2}.")
+                clues_structured.append({"type":"cross_eq","attr1":attr1,"value1":val1,"attr2":attr2,"value2":val2})
+            
+            used_facts.add(cross_key)
+            cross_count += 1
 
-    unique_clues_json = {json.dumps(c, sort_keys=True) for c in all_clues}
-    return [json.loads(c) for c in unique_clues_json]
-    
-def verify_solution(categories: Dict, base_category: str, structured_clues: List) -> List[Dict]:
+    random.shuffle(clues_text)
+    return clues_text, clues_structured
+
+# ───────────────────────────────
+# Generator
+# ───────────────────────────────
+from constraint import Problem, AllDifferentConstraint
+
+def has_unique_solution(entities, attributes, clues):
     """
-    Usa el Solucionador de Restricciones (CSP) para determinar
-    cuántas soluciones existen para un conjunto de pistas.
+    Checks if the puzzle has exactly one solution using python-constraint.
     """
     problem = Problem()
-    base_items = categories[base_category]
-    other_category_names = [k for k in categories if k != base_category]
     
-    variables = {}
-    for base_item in base_items:
-        variables[base_item] = {}
-        for cat_name in other_category_names:
-            var_name = f"{base_item}_{cat_name}"
-            problem.addVariable(var_name, categories[cat_name])
-            variables[base_item][cat_name] = var_name
-
-    for cat_name in other_category_names:
-        vars_for_cat = [variables[bi][cat_name] for bi in base_items]
-        problem.addConstraint(AllDifferentConstraint(), vars_for_cat)
-
-    # Añadir pistas como restricciones
-    for clue in structured_clues:
-        items = clue["items"]
-        if clue["type"] == "positive":
-            base_item, other = find_base_and_other_item(items, categories, base_category)
-            if base_item and other:
-                cat_name = get_category_name(other, categories)
-                problem.addConstraint(lambda v, i=other: v == i, [variables[base_item][cat_name]])
-
-        elif clue["type"] == "negative":
-            base_item, other = find_base_and_other_item(items, categories, base_category)
-            if base_item and other:
-                cat_name = get_category_name(other, categories)
-                problem.addConstraint(lambda v, i=other: v != i, [variables[base_item][cat_name]])
-
-        elif clue["type"] == "link":
-            item1, item2 = items
-            cat1_name = get_category_name(item1, categories)
-            cat2_name = get_category_name(item2, categories)
-            if not cat1_name or not cat2_name or cat1_name == base_category or cat2_name == base_category:
-                continue
-            for base_item in base_items:
-                var1, var2 = variables[base_item][cat1_name], variables[base_item][cat2_name]
-                problem.addConstraint(
-                    lambda v1, v2, i1=item1, i2=item2: (v1 != i1) or (v2 == i2), (var1, var2)
-                )
-                problem.addConstraint(
-                    lambda v1, v2, i1=item1, i2=item2: (v2 != i2) or (v1 == i1), (var1, var2)
-                )
-
-    return problem.getSolutions()
-
-def translate_clue_to_natural_language(clue: Dict, categories: Dict, base_category: str) -> str:
-    """
-    Convierte una pista estructurada en una frase simple
-    en lenguaje natural, de forma genérica.
-    """
-    items = clue["items"]
-    base_item, other_item = find_base_and_other_item(items, categories, base_category)
+    # Add variables for each entity-attribute
+    for attr, values in attributes.items():
+        for entity in entities:
+            problem.addVariable(f"{entity}_{attr}", values)
     
-    if base_item:
-        if clue["type"] == "positive":
-            return f"{base_item} is directly associated with {other_item}."
-        elif clue["type"] == "negative":
-            return f"{base_item} is NOT associated with {other_item}."
+    # Each attribute must have unique values among entities
+    for attr in attributes:
+        problem.addConstraint(AllDifferentConstraint(), [f"{e}_{attr}" for e in entities])
     
-    if clue["type"] == "link":
-        item1, item2 = items
-        return f"The item '{item1}' is linked to the same {base_category} as the item '{item2}'."
+    # Apply clue constraints
+    for clue in clues:
+        if clue["type"] == "eq":
+            e, a, v = clue["entity"], clue["attr"], clue["value"]
+            problem.addConstraint(lambda x, val=v: x == val, [f"{e}_{a}"])
+        elif clue["type"] == "neq":
+            e, a, v = clue["entity"], clue["attr"], clue["value"]
+            problem.addConstraint(lambda x, val=v: x != val, [f"{e}_{a}"])
+        elif clue["type"] == "cross_eq":
+            # Whoever has v1 in a1 also has v2 in a2
+            a1, v1, a2, v2 = clue["attr1"], clue["value1"], clue["attr2"], clue["value2"]
+            vars_a1 = [f"{e}_{a1}" for e in entities]
+            vars_a2 = [f"{e}_{a2}" for e in entities]
+            
+            def cross_eq_constraint(*args):
+                n = len(entities)
+                vals_a1 = args[:n]
+                vals_a2 = args[n:]
+                # If any entity has v1 in a1, it must have v2 in a2
+                for i in range(n):
+                    if vals_a1[i] == v1 and vals_a2[i] != v2:
+                        return False
+                return True
+            
+            problem.addConstraint(cross_eq_constraint, vars_a1 + vars_a2)
+        elif clue["type"] == "cross_neq":
+            # Whoever has v1 in a1 does NOT have v2 in a2
+            a1, v1, a2, v2 = clue["attr1"], clue["value1"], clue["attr2"], clue["value2"]
+            vars_a1 = [f"{e}_{a1}" for e in entities]
+            vars_a2 = [f"{e}_{a2}" for e in entities]
+            
+            def cross_neq_constraint(*args):
+                n = len(entities)
+                vals_a1 = args[:n]
+                vals_a2 = args[n:]
+                # No entity can have v1 in a1 AND v2 in a2
+                for i in range(n):
+                    if vals_a1[i] == v1 and vals_a2[i] == v2:
+                        return False
+                return True
+            
+            problem.addConstraint(cross_neq_constraint, vars_a1 + vars_a2)
     
-    return f"Clue: {clue['type']} - {', '.join(items)}"
+    solutions = problem.getSolutions()
+    return len(solutions) == 1
 
-# --- 4. FUNCIONES AUXILIARES (Sin cambios) ---
+# ───────────────────────────────
+# Modified generate_puzzle
+# ───────────────────────────────
+def generate_puzzle():
+    max_attempts = 500  # Avoid infinite loops
+    
+    for attempt in range(max_attempts):
+        n_entities = random.randint(MIN_ENTITIES, MAX_ENTITIES)
+        entities = random.sample(NAME_POOL, n_entities)
 
-def get_category_name(item: str, categories: Dict) -> Optional[str]:
-    for cat_name, items_list in categories.items():
-        if item in items_list:
-            return cat_name
+        # Select 2-3 attributes
+        num_attrs = random.choice([2, 3]) if len(ATTRIBUTE_POOLS) >= 3 else 2
+        attribute_names = random.sample(list(ATTRIBUTE_POOLS.keys()), num_attrs)
+        
+        attributes = {attr: random.sample(ATTRIBUTE_POOLS[attr], n_entities) for attr in attribute_names}
+
+        # Generate random solution (not sequential)
+        solution = {}
+        for attr in attribute_names:
+            shuffled_values = attributes[attr].copy()
+            random.shuffle(shuffled_values)
+            for i, person in enumerate(entities):
+                if person not in solution:
+                    solution[person] = {}
+                solution[person][attr] = shuffled_values[i]
+
+        # Generate clues
+        clues_text, clues_structured = generate_structured_clues(entities, attributes, solution)
+        
+        # Verify we have enough clues
+        if len(clues_structured) < len(entities):
+            continue
+
+        # Validate uniqueness
+        if has_unique_solution(entities, attributes, clues_structured):
+            text_prompt = generate_text(entities, attributes, clues_text)
+            return {
+                "id": str(uuid.uuid4()),
+                "text_prompt": text_prompt,
+                "entities": entities,
+                "attributes": attributes,
+                "clues": clues_structured,
+                "solution": solution
+            }
+    
+    # If couldn't generate a valid puzzle, try with minimal configuration
+    print(f"Warning: Could not generate unique puzzle in {max_attempts} attempts")
     return None
 
-def find_base_and_other_item(items: List[str], categories: Dict, base_category_name: str) -> Tuple[Optional[str], Optional[str]]:
-    base_item, other_item = None, None
-    for item in items:
-        if item in categories[base_category_name]: base_item = item
-        else: other_item = item
-    return base_item, other_item
-
-def format_puzzle_for_llm(puzzle_id: str, categories: Dict, natural_language_clues: List[str]) -> str:
-    """
-    Genera la representación de texto plano/markdown para el LLM.
-    """
-    output = f"## 🧩 New Logic Grid Puzzle (ID: {puzzle_id})\n\n"
-    output += "Your task is to find the correct correspondence...\n\n"
-    output += "### Categories\n"
-    for cat_name, items_list in categories.items():
-        output += f"* **{cat_name}:** {', '.join(items_list)}\n"
-    output += "\n### Clues\n"
-    for i, clue in enumerate(natural_language_clues, 1):
-        output += f"{i}. {clue}\n"
-    return output
-
-# --- 5. ORQUESTADOR DE GENERACIÓN (Sin cambios) ---
-
-def generate_puzzle_from_template(template: Dict, puzzle_index: int) -> Optional[Dict]:
-    """
-    Orquesta todo el proceso: Verdad -> Pistas -> Selección -> Verificación.
-    """
-    print(f"  Generando puzzle {puzzle_index} (molde: {template['id_prefix']})...")
+# ───────────────────────────────
+# Main
+# ───────────────────────────────
+def generate_dataset(filename="logic_puzzles_auto.jsonl"):
+    output = Path(filename)
+    generated_count = 0
     
-    categories = template["categories"]
-    base_category = template["base_category"]
-    
-    # 1. Generar Solución
-    ground_truth = create_ground_truth(categories, base_category)
-    
-    # 2. Generar Banco de Pistas
-    all_possible_clues = generate_all_possible_clues(ground_truth, categories, base_category)
-    random.shuffle(all_possible_clues)
-    
-    # 3. Seleccionar Pistas (Método "Build-up")
-    essential_clues = []
-    
-    initial_solutions = verify_solution(categories, base_category, [])
-    if not initial_solutions:
-        print("  Error: El molde es inherentemente contradictorio.")
-        return None
-        
-    current_solution_count = len(initial_solutions)
-    
-    max_attempts = len(all_possible_clues) * 2
-    attempts = 0
-    clue_pool = all_possible_clues.copy()
-    
-    while current_solution_count > 1 and attempts < max_attempts:
-        if not clue_pool: break
-        attempts += 1
-        
-        clue = clue_pool.pop(random.randint(0, len(clue_pool)-1))
-        potential_clues = essential_clues + [clue]
-        new_solutions = verify_solution(categories, base_category, potential_clues)
-        new_solution_count = len(new_solutions)
-        
-        if new_solution_count < current_solution_count and new_solution_count > 0:
-            essential_clues.append(clue)
-            current_solution_count = new_solution_count
+    with output.open("w", encoding="utf8") as f:
+        for i in range(NUM_PUZZLES):
+            puzzle = generate_puzzle()
+            if puzzle is not None:
+                f.write(json.dumps(puzzle, ensure_ascii=False) + "\n")
+                generated_count += 1
             
-    # 4. Verificación Final
-    if current_solution_count != 1:
-        print(f"  Fallo en la generación: No se pudo alcanzar una solución única (quedaron {current_solution_count}). Reintentando...")
-        return None
+            if (i + 1) % 10 == 0:
+                print(f"Progress: {i + 1}/{NUM_PUZZLES} attempts, {generated_count} puzzles generated")
 
-    # 5. Traducir y Formatear
-    natural_language_clues = [
-        translate_clue_to_natural_language(c, categories, base_category)
-        for c in essential_clues
-    ]
-    puzzle_id = f"{template['id_prefix']}_{puzzle_index}"
-    
-    llm_prompt = format_puzzle_for_llm(puzzle_id, categories, natural_language_clues)
-    
-    final_puzzle = {
-        "puzzle_id": puzzle_id,
-        "llm_prompt": llm_prompt,
-        "ground_truth_solution": ground_truth,
-        "structured_clues_used": essential_clues,
-        "clue_count": len(essential_clues)
-    }
-    
-    print(f"  ¡Éxito! Puzzle {puzzle_id} generado con {len(essential_clues)} pistas.")
-    return final_puzzle
-
-
-# --- 6. EJECUCIÓN PRINCIPAL ---
+    print(f"Generated {generated_count} valid puzzles out of {NUM_PUZZLES} attempts → {output.absolute()}")
+    if generated_count < NUM_PUZZLES:
+        print(f"Note: Only generated {generated_count} valid puzzles out of {NUM_PUZZLES} requested")
 
 if __name__ == "__main__":
-    print(f"Iniciando la generación de {N_PUZZLES_TO_GENERATE} puzzles...")
-    
-    puzzles_generated_count = 0
-    
-    while puzzles_generated_count < N_PUZZLES_TO_GENERATE:
-        template = random.choice(PUZZLE_TEMPLATES)
-        new_puzzle = generate_puzzle_from_template(template, puzzles_generated_count + 1)
-        
-        if new_puzzle:
-            ALL_PUZZLES_GENERATED.append(new_puzzle)
-            puzzles_generated_count += 1
-            print("---")
-
-    print("=====================================================")
-    print(f"Generación completada. Total de puzzles en 'ALL_PUZZLES_GENERATED': {len(ALL_PUZZLES_GENERATED)}")
-    print("=====================================================")
-
-    # --- INICIO: BLOQUE PARA GUARDAR EN CSV (con separador '$') ---
-    
-    if ALL_PUZZLES_GENERATED:
-        csv_filename = "generated_logic_puzzles.csv"
-        
-        fieldnames = [
-            "puzzle_id",
-            "clue_count",
-            "llm_prompt",
-            "ground_truth_solution_json",
-            "structured_clues_json"
-        ]
-
-        print(f"\nGuardando {len(ALL_PUZZLES_GENERATED)} puzzles en {csv_filename} (separador: '$')...")
-        
-        try:
-            with open(csv_filename, mode='w', newline='', encoding='utf-8') as f:
-                # --- ¡CAMBIO AQUÍ! ---
-                # Añadido delimiter='$'
-                writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter='$')
-                
-                writer.writeheader()
-                
-                for puzzle in ALL_PUZZLES_GENERATED:
-                    solution_json = json.dumps(puzzle["ground_truth_solution"])
-                    clues_json = json.dumps(puzzle["structured_clues_used"])
-                    
-                    row_data = {
-                        "puzzle_id": puzzle["puzzle_id"],
-                        "clue_count": puzzle["clue_count"],
-                        "llm_prompt": puzzle["llm_prompt"],
-                        "ground_truth_solution_json": solution_json,
-                        "structured_clues_json": clues_json
-                    }
-                    writer.writerow(row_data)
-            
-            print(f"¡Éxito! Archivo '{csv_filename}' guardado.")
-
-        except Exception as e:
-            print(f"Error al guardar el CSV: {e}")
-
-    # --- FIN: BLOQUE CSV ---
-
-    if ALL_PUZZLES_GENERATED:
-        print("\nEjemplo de un puzzle generado (formato LLM):")
-        print(random.choice(ALL_PUZZLES_GENERATED)["llm_prompt"])
+    generate_dataset()
